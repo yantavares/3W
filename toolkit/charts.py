@@ -1,6 +1,5 @@
 import pandas as pd
 import plotly.graph_objects as go
-import os
 from typing import List, Dict, Optional
 
 class ThreeWChart:
