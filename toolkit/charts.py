@@ -89,7 +89,10 @@ class ThreeWChart:
         pd.DataFrame
             Preprocessed DataFrame with sorted timestamps and no missing values.
         """
-        df = pd.read_parquet(filename)
+        try:
+            df = pd.read_parquet(filename)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"File not found: {filename}")
         df.reset_index(inplace=True)
         df = df.dropna(subset=["timestamp"]).drop_duplicates("timestamp").fillna(0)
         return df.sort_values(by="timestamp")
