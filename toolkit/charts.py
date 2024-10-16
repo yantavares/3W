@@ -1,10 +1,13 @@
 import pandas as pd
 import plotly.graph_objects as go
 from typing import List, Dict, Optional
+import ipywidgets as widgets
+from IPython.display import display
 
 class ThreeWChart:
     """
     A class to generate interactive visualizations for 3W dataset files using Plotly.
+    Optionally, it allows the selection of a column to plot via a dropdown if enabled.
 
     Attributes
     ----------
@@ -13,7 +16,9 @@ class ThreeWChart:
     title : str, optional
         Title of the chart (default is "ThreeW Chart").
     y_axis : str, optional
-        Column name to be plotted on the y-axis (default is "P-MON-CKP").
+        Default column to plot on the y-axis (default is "P-MON-CKP").
+    use_dropdown : bool, optional
+        Whether to enable the dropdown for column selection (default is False).
     class_mapping : Dict[int, str]
         Dictionary mapping class IDs to their respective descriptions.
     class_colors : Dict[int, str]
@@ -23,6 +28,12 @@ class ThreeWChart:
     -------
     _load_data(filename: str) -> pd.DataFrame
         Loads and preprocesses the dataset from a Parquet file.
+    _get_valid_cols(df: pd.DataFrame) -> List[str]
+        Retrieves numeric columns that contain at least one non-zero value.
+    _create_dropdown(options: List[str]) -> widgets.Dropdown
+        Creates a dropdown widget for selecting columns to plot.
+    _update_chart(change: dict) -> None
+        Updates the chart when a new column is selected from the dropdown.
     _get_background_shapes(df: pd.DataFrame) -> List[Dict]
         Creates background shapes for different classes based on class transitions.
     _add_custom_legend(fig: go.Figure) -> None
@@ -31,7 +42,7 @@ class ThreeWChart:
         Generates and displays the interactive chart using Plotly.
     """
 
-    def __init__(self, file_path: str, title: str = "ThreeW Chart", y_axis: str = "P-MON-CKP"):
+    def __init__(self, file_path: str, title: str = "ThreeW Chart", y_axis: str = "P-MON-CKP", use_dropdown: bool = False):
         """
         Initializes the ThreeWChart class with the given parameters.
 
@@ -42,11 +53,15 @@ class ThreeWChart:
         title : str, optional
             Title of the chart (default is "ThreeW Chart").
         y_axis : str, optional
-            Column name to be plotted on the y-axis (default is "P-MON-CKP").
+            Default column name to be plotted on the y-axis (default is "P-MON-CKP").
+        use_dropdown : bool, optional
+            Whether to enable the dropdown for column selection (default is False).
         """
         self.file_path: Optional[str] = file_path
         self.title: str = title
         self.y_axis: str = y_axis
+        self.use_dropdown: bool = use_dropdown
+        self.df: Optional[pd.DataFrame] = None  # To store the loaded DataFrame
 
         self.class_mapping: Dict[int, str] = {
             0: "Normal Operation",
@@ -95,7 +110,60 @@ class ThreeWChart:
             raise FileNotFoundError(f"File not found: {filename}")
         df.reset_index(inplace=True)
         df = df.dropna(subset=["timestamp"]).drop_duplicates("timestamp").fillna(0)
-        return df.sort_values(by="timestamp")
+        self.df = df.sort_values(by="timestamp")
+        return self.df
+
+    def _get_valid_cols(self, df: pd.DataFrame) -> List[str]:
+        """
+        Retrieves numeric columns that contain at least one non-zero value.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            DataFrame containing the data.
+
+        Returns
+        -------
+        List[str]
+            List of numeric column names with non-zero values.
+        """
+        return [col for col in df.select_dtypes(include=[float, int]).columns if df[col].any()]
+
+    def _create_dropdown(self, options: List[str]) -> widgets.Dropdown:
+        """
+        Creates a dropdown widget for selecting columns to plot.
+
+        Parameters
+        ----------
+        options : List[str]
+            List of column names to include in the dropdown.
+
+        Returns
+        -------
+        widgets.Dropdown
+            Dropdown widget for selecting columns.
+        """
+        dropdown = widgets.Dropdown(
+            options=options,
+            value=self.y_axis,
+            description='Select Column:',
+            disabled=False,
+        )
+        dropdown.observe(self._update_chart, names='value')
+        return dropdown
+
+    def _update_chart(self, change: dict) -> None:
+        """
+        Updates the chart when a new column is selected from the dropdown.
+
+        Parameters
+        ----------
+        change : dict
+            Dictionary containing information about the dropdown change event.
+        """
+        new_column = change['new']
+        self.y_axis = new_column
+        self._plot_chart()
 
     def _get_background_shapes(self, df: pd.DataFrame) -> List[Dict]:
         """
@@ -118,10 +186,6 @@ class ThreeWChart:
         for i in range(len(df)):
             current_class = df.iloc[i]['class']
 
-            if pd.isna(current_class):
-                print(f"Warning: NaN class value at index {i}")
-                continue
-
             if prev_class is not None and current_class != prev_class:
                 shapes.append(dict(
                     type="rect",
@@ -135,17 +199,6 @@ class ThreeWChart:
                 start_idx = i
 
             prev_class = current_class
-
-        if prev_class is not None:
-            shapes.append(dict(
-                type="rect",
-                x0=df.iloc[start_idx]['timestamp'],
-                x1=df.iloc[len(df) - 1]['timestamp'],
-                y0=0, y1=1,
-                xref='x', yref='paper',
-                fillcolor=self.class_colors.get(prev_class, "white"),
-                opacity=0.2, line_width=0
-            ))
 
         return shapes
 
@@ -173,20 +226,26 @@ class ThreeWChart:
         """
         df = self._load_data(self.file_path)
 
+        if self.use_dropdown:
+            numeric_columns = self._get_valid_cols(df)
+            dropdown = self._create_dropdown(numeric_columns)
+            display(dropdown)
+
+        self._plot_chart()
+
+    def _plot_chart(self) -> None:
+        """Helper method to plot the chart with the current y-axis column."""
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df["timestamp"], y=df[self.y_axis], mode='lines', name=self.y_axis))
-        fig.update_xaxes(rangeslider_visible=True)
+        fig.add_trace(go.Scatter(x=self.df["timestamp"], y=self.df[self.y_axis], mode='lines', name=self.y_axis))
         fig.update_layout(
-            shapes=self._get_background_shapes(df),
+            shapes=self._get_background_shapes(self.df),
             xaxis_title='Timestamp',
             yaxis_title=self.y_axis,
             title=self.title,
         )
         self._add_custom_legend(fig)
-        fig.update_layout(legend=dict(x=1.05, y=1, title="Class Events"))
         fig.show(config={'displaylogo': False})
 
-
 if __name__ == "__main__":
-    chart = ThreeWChart(file_path="dataset/0/WELL-00001_20170201010207.parquet")
+    chart = ThreeWChart(file_path="dataset/0/WELL-00001_20170201010207.parquet", use_dropdown=True)
     chart.plot()
