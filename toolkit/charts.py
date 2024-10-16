@@ -14,6 +14,8 @@ class ThreeWChart:
         Title of the chart (default is "ThreeW Chart").
     y_axis : str, optional
         Column name to be plotted on the y-axis (default is "P-MON-CKP").
+    use_dropdown : bool, optional
+        Whether to show a dropdown for selecting the y-axis (default is False).
     class_mapping : Dict[int, str]
         Dictionary mapping class IDs to their respective descriptions.
     class_colors : Dict[int, str]
@@ -31,7 +33,7 @@ class ThreeWChart:
         Generates and displays the interactive chart using Plotly.
     """
 
-    def __init__(self, file_path: str, title: str = "ThreeW Chart", y_axis: str = "P-MON-CKP"):
+    def __init__(self, file_path: str, title: str = "ThreeW Chart", y_axis: str = "P-MON-CKP", use_dropdown: bool = False, dropdown_position: tuple = (0.4, 1.4)):
         """
         Initializes the ThreeWChart class with the given parameters.
 
@@ -43,10 +45,16 @@ class ThreeWChart:
             Title of the chart (default is "ThreeW Chart").
         y_axis : str, optional
             Column name to be plotted on the y-axis (default is "P-MON-CKP").
+        use_dropdown : bool, optional
+            Whether to show a dropdown for selecting the y-axis (default is False).
+        dropdown_position : tuple, optional
+            Position of the dropdown menu on the chart (default is (x=0.4, y=1.4)).
         """
         self.file_path: Optional[str] = file_path
         self.title: str = title
         self.y_axis: str = y_axis
+        self.use_dropdown: bool = use_dropdown
+        self.dropdown_position: tuple = dropdown_position
 
         self.class_mapping: Dict[int, str] = {
             0: "Normal Operation",
@@ -96,6 +104,22 @@ class ThreeWChart:
         df.reset_index(inplace=True)
         df = df.dropna(subset=["timestamp"]).drop_duplicates("timestamp").fillna(0)
         return df.sort_values(by="timestamp")
+
+    def _get_non_zero_columns(self, df: pd.DataFrame) -> List[str]:
+        """
+        Returns the list of columns that are not all zeros or NaN.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            DataFrame to check for non-zero columns.
+
+        Returns
+        -------
+        List[str]
+            List of column names that are not all zeros or NaN.
+        """
+        return [col for col in df.columns if df[col].astype(bool).sum() > 0 and col != "timestamp" and col != "class"]
 
     def _get_background_shapes(self, df: pd.DataFrame) -> List[Dict]:
         """
@@ -173,13 +197,64 @@ class ThreeWChart:
         """
         df = self._load_data(self.file_path)
 
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df["timestamp"], y=df[self.y_axis], mode='lines', name=self.y_axis))
+        if self.use_dropdown:
+            # Get the non-zero or non-NaN columns
+            available_y_axes = self._get_non_zero_columns(df)
+            
+            if available_y_axes:
+                # Create a dropdown with options for selecting y-axis
+                dropdown_buttons = [
+                    dict(
+                        args=[{"y": [df[col]]}, {"yaxis.title": col}],
+                        label=col,
+                        method="restyle"
+                    ) for col in available_y_axes
+                ]
+                
+                fig = go.Figure()
+
+                y_axis = pd.Series()
+                if self.y_axis not in available_y_axes:
+                    print(f"Warning: Default y-axis '{self.y_axis}' not found in available columns.")
+                    print("Using the first available column as the default y-axis.")
+                    y_axis = df[available_y_axes[0]]
+                    self.y_axis = available_y_axes[0]
+                else:
+                    y_axis = df[self.y_axis]
+
+                if y_axis.empty:
+                    raise ValueError("No available columns to plot.")
+                # Add the default trace
+                fig.add_trace(go.Scatter(x=df["timestamp"], y=y_axis, mode='lines', name=self.y_axis))
+
+                # Set the active index for the dropdown based on the y_axis
+                default_y_axis = self.y_axis if self.y_axis in available_y_axes else available_y_axes[0]
+                active_index = available_y_axes.index(default_y_axis)
+
+                fig.update_layout(
+                    updatemenus=[
+                        dict(
+                            buttons=dropdown_buttons,
+                            direction="down",
+                            showactive=True,
+                            x=self.dropdown_position[0],
+                            y=self.dropdown_position[1],
+                            active=active_index 
+                        )
+                    ]
+                )
+
+            else:
+                raise ValueError("No available columns to plot.")
+        else:
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=df["timestamp"], y=df[self.y_axis], mode='lines', name=self.y_axis))
+
         fig.update_xaxes(rangeslider_visible=True)
         fig.update_layout(
             shapes=self._get_background_shapes(df),
             xaxis_title='Timestamp',
-            yaxis_title=self.y_axis,
+            yaxis_title=self.y_axis if not self.use_dropdown else available_y_axes[0],
             title=self.title,
         )
         self._add_custom_legend(fig)
@@ -188,5 +263,5 @@ class ThreeWChart:
 
 
 if __name__ == "__main__":
-    chart = ThreeWChart(file_path="dataset/0/WELL-00001_20170201010207.parquet")
+    chart = ThreeWChart(file_path="dataset/0/WELL-00001_20170201010207.parquet", use_dropdown=True)
     chart.plot()
