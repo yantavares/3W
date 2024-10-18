@@ -77,9 +77,9 @@ class ThreeWChart:
         }
 
         self.class_colors: Dict[int, str] = {
-            0: "white", 1: "blue", 2: "coral", 3: "green", 4: "yellow",
-            5: "brown", 6: "pink", 7: "gray", 8: "salmon", 9: "red",
-            101: "cyan", 102: "lightcoral", 105: "beige", 106: "lightpink",
+            0: "white", 1: "blue", 2: "red", 3: "green", 4: "yellow",
+            5: "brown", 6: "pink", 7: "gray", 8: "salmon", 9: "turquoise",
+            101: "cyan", 102: "coral", 105: "beige", 106: "lightpink",
             107: "lightgray", 108: "lightsalmon", 109: "orange",
         }
 
